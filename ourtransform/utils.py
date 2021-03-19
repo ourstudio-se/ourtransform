@@ -18,4 +18,4 @@ def distribute(items, n):
     for i in range(len(items)):
         item = items[i]
         batches[i % n].append(item)
-    return batches
+    return [b for b in batches if not len(b) == 0]

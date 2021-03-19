@@ -1,7 +1,10 @@
 import abc
 import copy
 from enum import Enum
+from functools import partial
 from inspect import signature
+from ourtransform.utils import distribute
+from multiprocessing import Pool, cpu_count
 from typing import Any, List, Dict, Callable
 
 class Level(str, Enum):
@@ -419,24 +422,45 @@ class Result(object):
     def empty():
         return Result()
 
+    @staticmethod
+    def concatenate(*results):
+
+        """
+            Concatenates results into one result.
+
+            Args: results *[Result]
+            Return: Result
+        """
+
+        result = Result.empty()
+        for _result in results:
+            if not isinstance(_result, Result):
+                raise Exception(f"Arguments must be of type 'Result', got: {type(_result)}")
+
+            result.elements += _result.elements
+            result.notices.update(_result.notices)
+
+        return result
+
 class Process(object):
     """
     A Process runs elements over Chains, linked by Selectors and other Processes, such that
     transformation is done.
     """
-    def __init__(self, selector: Selector, notice_level: Level = Level.ERROR, meta: Meta = None, id: str = None):
+    def __init__(self, selector: Selector, notice_level: Level = Level.ERROR, meta: Meta = None, id: str = None, logger = None):
         self.id = id
         self.selector = selector
         self.sub_process = []
         self.notice_level = notice_level
         self.meta = meta
+        self.logger = logger
 
     def append_subprocess(self, process):
         self.sub_process.append(process)
         return self
 
     @staticmethod
-    def _run(process, elements: List[Element]) -> Result:
+    def _sub_run(process, elements: List[Element]) -> Result:
         
         result = Result.empty()
         try:
@@ -456,16 +480,40 @@ class Process(object):
             )
         return result
 
-    def run(self, elements: List[Element]) -> Result:
-
-        result = Process._run(
-            process=self, 
+    @staticmethod
+    def _run(process, elements: List[Element]):
+        result = Process._sub_run(
+            process=process, 
             elements=elements,
         )
-        for sub_process in self.sub_process:
-            result = Process._run(
+        for sub_process in process.sub_process:
+            result = Process._sub_run(
                 process=sub_process, 
                 elements=result.elements,
             )
 
         return result
+
+    def run(self, elements: List[Element]) -> Result:
+        return Process._run(
+            process=self,
+            elements=elements,
+        )
+
+    async def run_async(self, elements: List[Element], timeout: int = 600) -> Result:
+        
+        try:
+            distributed_elements = distribute(elements, cpu_count())
+            with Pool(len(distributed_elements)) as p:
+                result = p.map_async(
+                    partial(Process._run, self), 
+                    distributed_elements,
+                ).get(timeout=timeout)
+
+            return Result.concatenate(*result)
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Process could not finish because of error: {e}")
+            
+            raise e

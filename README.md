@@ -190,8 +190,18 @@ process = Process(
     ),
 )
 
-elements = process.run(
+result = process.run(
     elements=elements,
+)
+```
+
+Run `async` with multiprocessing by `run_async`. Set a timeout to limit for how long it can run. It will throw an `TimeoutError` if not completed.
+
+```python
+
+result = await process.run_async(
+    elements=elements,
+    timeout=600,
 )
 ```
 
@@ -214,7 +224,7 @@ process_main = Process(
     process=Process(selector=...),
 )
 
-elements = process.run(
+result = process.run(
     elements=elements,
 )
 ```
